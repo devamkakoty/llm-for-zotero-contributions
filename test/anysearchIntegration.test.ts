@@ -2,7 +2,7 @@ import { assert } from "chai";
 import { readFileSync } from "node:fs";
 import { AnysearchClient } from "../src/webAccess/anysearchClient";
 import { WebAccessError } from "../src/webAccess/errors";
-import { TavilyClient } from "../src/webAccess/tavilyClient";
+import { buildWebSourceId, TavilyClient } from "../src/webAccess/tavilyClient";
 import {
   ANYSEARCH_API_KEY_PREF,
   TAVILY_API_KEY_PREF,
@@ -20,7 +20,11 @@ import { createWebSearchTool } from "../src/agent/tools/read/webSearch";
 import { createWebReadTool } from "../src/agent/tools/read/webRead";
 import { registerWebAccessPreferences } from "../src/modules/preferences/webAccessPanel";
 import { AgentToolRegistry } from "../src/agent/tools/registry";
-import { clearWebSourcesForRun } from "../src/webAccess/runSources";
+import {
+  applyRunSourceIds,
+  assertWebReadUrlsFromSearch,
+  clearWebSourcesForRun,
+} from "../src/webAccess/runSources";
 import type { AgentToolContext } from "../src/agent/types";
 
 class PreferencesElement {
@@ -186,6 +190,183 @@ describe("AnySearch native integration (offline)", function () {
     assert.notProperty(headers[1], "Authorization");
     assert.notInclude(JSON.stringify(headers), "synthetic-tavily-key");
   });
+
+  for (const scenario of [
+    {
+      name: "two results",
+      status: 200,
+      code: 0,
+      errorCode: undefined,
+      errorMessage: undefined,
+    },
+    {
+      name: "HTTP 402",
+      status: 402,
+      code: 402,
+      errorCode: "quota",
+      errorMessage:
+        "AnySearch quota exhausted. No credentials were adopted and no retry was made.",
+    },
+    {
+      name: "HTTP 200 / business 429",
+      status: 200,
+      code: 429,
+      errorCode: "rate_limit",
+      errorMessage: "AnySearch rate limit reached. Try again later.",
+    },
+  ] as const) {
+    it(`joins saved anonymous AnySearch to Agent search via modern native HTTP: ${scenario.name}`, async function () {
+      setWebAccessProvider("anysearch");
+      setAnysearchApiKey("");
+      assert.equal(prefs.get(ANYSEARCH_API_KEY_PREF), "");
+      assert.equal(prefs.get(TAVILY_API_KEY_PREF), "synthetic-tavily-key");
+      const query = "参考文献の管理";
+      const pages = [
+        {
+          url: "https://example.org/a",
+          title: "Content result",
+          content: "Public content summary",
+        },
+        {
+          url: "https://example.org/b",
+          title: "Snippet result",
+          snippet: "Public snippet summary",
+        },
+      ];
+      const expectedSources = pages.map((page) => ({
+        sourceId: buildWebSourceId(`${context.runId}:${page.url}`),
+        url: page.url,
+        hostname: "example.org",
+        organization: "example.org",
+        title: page.title,
+        snippet: page.content ?? page.snippet,
+      }));
+      assert.isEmpty(applyRunSourceIds(context.runId!, expectedSources));
+      const privateMarker = "synthetic-response-secret";
+      type RequestOptions = {
+        headers: Record<string, string>;
+        body: string;
+        userContextId: number;
+        requestObserver: (xhr: unknown) => void;
+        anon?: boolean;
+      };
+      const requests: {
+        method: string;
+        url: string;
+        options: RequestOptions;
+      }[] = [];
+      let contextsCreated = 0;
+      let contextsDisposed = 0;
+      let fetchCalls = 0;
+      globalThis.fetch = async () => {
+        fetchCalls++;
+        throw new Error("Unexpected fetch fallback in offline Agent search");
+      };
+      Object.assign(globalThis.Zotero, {
+        HTTP: {
+          newCookieContext: () => {
+            contextsCreated++;
+            return {
+              id: 100040,
+              dispose: () => contextsDisposed++,
+            };
+          },
+          request: async (
+            method: string,
+            url: string,
+            options: RequestOptions,
+          ) => {
+            requests.push({ method, url, options });
+            observeNativeRequest(options);
+            return {
+              status: scenario.status,
+              responseText: JSON.stringify({
+                code: scenario.code,
+                request_id: scenario.errorCode ? privateMarker : "agent-search",
+                ...(scenario.errorCode
+                  ? { message: `${privateMarker} synthetic-tavily-key` }
+                  : {}),
+                // Even valid-looking results in error envelopes must not register.
+                data: { results: pages },
+              }),
+            };
+          },
+        },
+      });
+      const search = createWebSearchTool();
+      const validated = search.validate({ query });
+      assert.deepEqual(validated, {
+        ok: true,
+        value: { query, maxResults: 5 },
+      });
+      if (!validated.ok) throw new Error(validated.error);
+      let result: Awaited<ReturnType<typeof search.execute>> | undefined;
+      let failure: unknown;
+      try {
+        result = await search.execute(validated.value, context);
+      } catch (error) {
+        failure = error;
+      }
+
+      assert.lengthOf(requests, 1, "No retry or provider fallback");
+      assert.equal(fetchCalls, 0);
+      assert.equal(contextsCreated, 1);
+      assert.equal(contextsDisposed, 1);
+      const { method, url, options } = requests[0];
+      assert.equal(method, "POST");
+      assert.equal(url, "https://api.anysearch.com/v1/search");
+      assert.deepEqual(JSON.parse(options.body), { query, max_results: 5 });
+      assert.equal(options.userContextId, 100040);
+      assert.notProperty(options, "cookieSandbox");
+      assert.notInclude(
+        Object.keys(options.headers).map((key) => key.toLowerCase()),
+        "authorization",
+      );
+      assert.notInclude(JSON.stringify(requests), "synthetic-tavily-key");
+
+      if (scenario.errorCode) {
+        assert.isUndefined(result);
+        assert.instanceOf(failure, WebAccessError);
+        const error = failure as WebAccessError;
+        assert.equal(error.code, scenario.errorCode);
+        assert.equal(error.status, scenario.status);
+        assert.equal(error.message, scenario.errorMessage);
+        assert.isUndefined(error.requestId);
+        assert.notProperty(error, "cause");
+        const serialized = `${error.message}\n${error.stack}\n${JSON.stringify(error)}`;
+        assert.notInclude(serialized, privateMarker);
+        assert.notInclude(serialized, "synthetic-tavily-key");
+        assert.isEmpty(applyRunSourceIds(context.runId!, expectedSources));
+        for (const page of pages) {
+          assert.throws(
+            () => assertWebReadUrlsFromSearch(context.runId!, [page.url]),
+            "returned by web_search",
+          );
+        }
+      } else {
+        assert.isUndefined(failure);
+        assert.isDefined(result);
+        assert.equal(result!.provider, "anysearch");
+        assert.equal(result!.query, query);
+        assert.equal(result!.requestId, "agent-search");
+        assert.deepEqual(result!.results, expectedSources);
+        assert.deepEqual(
+          result!.citation.availableSourceIds,
+          expectedSources.map((source) => source.sourceId),
+        );
+        assert.deepEqual(
+          applyRunSourceIds(context.runId!, expectedSources),
+          expectedSources,
+        );
+        assert.doesNotThrow(() =>
+          assertWebReadUrlsFromSearch(
+            context.runId!,
+            pages.map((page) => page.url),
+          ),
+        );
+      }
+    });
+  }
 
   it("refreshes registered schemas with saved provider changes, without unsupported fields or costs", function () {
     const registry = new AgentToolRegistry();
