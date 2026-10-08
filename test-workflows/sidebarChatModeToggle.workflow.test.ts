@@ -970,7 +970,7 @@ describe("workflow: sidebar chat mode toggle", function () {
         context.scale(scale, scale);
         context.drawWindow(win, pane.left, pane.top, width, height, "#ffffff");
         const binary = win.atob(canvas.toDataURL("image/png").split(",")[1]);
-        const path = `${Zotero.DataDirectory.dir}/${filename}`;
+        const path = PathUtils.join(Zotero.DataDirectory.dir, filename);
         await win.IOUtils.write(
           path,
           Uint8Array.from(binary, (char: string) => char.charCodeAt(0)),

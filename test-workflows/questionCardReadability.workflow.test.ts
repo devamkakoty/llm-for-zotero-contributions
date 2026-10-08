@@ -2,6 +2,49 @@ import { assert } from "chai";
 import { buildNativeQuestionAction } from "../src/codexAppServer/nativeQuestions";
 import type { WorkflowTestApi } from "../src/modules/contextPanel/workflowTestTypes";
 
+async function waitForQuestionLayout(card: HTMLElement): Promise<void> {
+  const deadline = Date.now() + 5000;
+  let previous = "";
+  let stableSamples = 0;
+  let diagnostic = "";
+  while (Date.now() < deadline) {
+    const viewport = card.querySelector<HTMLElement>(
+      ".llm-planning-question-viewport",
+    );
+    const active = card.querySelector<HTMLElement>(
+      '.llm-planning-question-panel[aria-hidden="false"]',
+    );
+    const elements = [
+      card,
+      viewport,
+      active,
+      ...(Array.from(
+        card.querySelectorAll<HTMLElement>(".llm-planning-question-option"),
+      ) as HTMLElement[]),
+    ];
+    const rects = elements.map((element) =>
+      element?.getBoundingClientRect().toJSON(),
+    );
+    diagnostic = JSON.stringify({
+      connected: card.isConnected,
+      ready: card.dataset.questionStackReady,
+      rects,
+    });
+    const rendered =
+      card.isConnected &&
+      card.dataset.questionStackReady === "true" &&
+      elements.length > 3 &&
+      rects.every((rect) => rect && rect.width > 0 && rect.height > 0);
+    // The renderer mounts panels in requestAnimationFrame and adjusts the
+    // viewport through ResizeObserver. Elapsed time alone is not readiness.
+    stableSamples = rendered && diagnostic === previous ? stableSamples + 1 : 0;
+    if (stableSamples >= 2) return;
+    previous = diagnostic;
+    await Zotero.Promise.delay(50);
+  }
+  assert.fail(`Question layout did not become ready and stable: ${diagnostic}`);
+}
+
 describe("workflow: question card readability", function () {
   this.timeout(30000);
 
@@ -60,7 +103,7 @@ describe("workflow: question card readability", function () {
           card.style.width = `${width}px`;
           card.style.maxWidth = "none";
           root.style.setProperty("--llm-font-scale", `${scale}`);
-          await Zotero.Promise.delay(450);
+          await waitForQuestionLayout(card);
           for (const option of Array.from(
             card.querySelectorAll<HTMLElement>(".llm-planning-question-option"),
           ) as HTMLElement[]) {

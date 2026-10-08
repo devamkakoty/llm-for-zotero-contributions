@@ -1,19 +1,11 @@
 import { spawn } from "node:child_process";
+import { createWorkflowTestCommand } from "./workflow-command.mjs";
 
-const command = process.platform === "win32" ? "npx.cmd" : "npx";
-const args = ["zotero-plugin", "test", "--no-watch", "--abort-on-fail"];
-const webChatLive = process.argv.includes("--webchat-live");
-const agentLive = process.argv.includes("--agent-live");
+const { command, args, env } = createWorkflowTestCommand();
 
 const child = spawn(command, args, {
   stdio: "inherit",
-  env: {
-    ...process.env,
-    NODE_ENV: "test",
-    LLM_FOR_ZOTERO_WORKFLOW_TESTS: "1",
-    ...(webChatLive ? { LLM_FOR_ZOTERO_WEBCHAT_LIVE: "1" } : {}),
-    ...(agentLive ? { LLM_FOR_ZOTERO_AGENT_LIVE: "1" } : {}),
-  },
+  env,
 });
 
 // Wait for the child process and its inherited stdio streams to close before
