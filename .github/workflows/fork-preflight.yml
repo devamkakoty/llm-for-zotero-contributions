@@ -1,0 +1,35 @@
+name: Fork-only preflight
+
+on:
+  push:
+    branches:
+      - review/anysearch-ci-preflight-20261008
+
+permissions:
+  contents: read
+
+jobs:
+  complete-check:
+    if: github.repository == 'devamkakoty/llm-for-zotero-contributions'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      LLM_FOR_ZOTERO_AGENT_LIVE: "0"
+      LLM_FOR_ZOTERO_WEBCHAT_LIVE: "0"
+    steps:
+      - name: Checkout exact validation commit
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Set up Node 24 without a persistent cache
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - name: Install locked dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Lint
+        run: npm run lint:check
+      - name: Build
+        run: npm run build
+      - name: Complete npm test gate
+        run: npm test
