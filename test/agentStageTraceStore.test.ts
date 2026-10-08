@@ -547,17 +547,36 @@ describe("tool results in the trace store", function () {
 });
 
 describe("tool result preview cost", function () {
-  /** The median of seven runs, in milliseconds, after a warm-up run. */
-  function timed(content: unknown): { ms: number; preview: unknown } {
-    let preview = buildToolResultPreview(content);
-    const runs: number[] = [];
-    for (let run = 0; run < 7; run += 1) {
-      const start = performance.now();
-      preview = buildToolResultPreview(content);
-      runs.push(performance.now() - start);
+  function median(values: number[]): number {
+    const sorted = [...values].sort((left, right) => left - right);
+    const middle = Math.floor(sorted.length / 2);
+    return (sorted[middle - 1] + sorted[middle]) / 2;
+  }
+
+  function timedTogether(contents: unknown[]) {
+    const samples = contents.map(() => ({
+      runs: [] as number[],
+      preview: undefined as unknown,
+    }));
+    const forward = contents.map((_, index) => index);
+    const backward = [...forward].reverse();
+    // Warm every shape equally, then pair measurements in alternating order.
+    // Fixed rounds avoid both first-fixture JIT bias and retry-until-green.
+    for (let round = 0; round < 8; round += 1) {
+      for (const index of round % 2 === 0 ? forward : backward) {
+        buildToolResultPreview(contents[index]);
+      }
     }
-    runs.sort((left, right) => left - right);
-    return { ms: runs[3], preview };
+    for (let round = 0; round < 8; round += 1) {
+      for (const index of round % 2 === 0 ? forward : backward) {
+        const start = performance.now();
+        const preview = buildToolResultPreview(contents[index]);
+        const ms = performance.now() - start;
+        samples[index].runs.push(ms);
+        samples[index].preview = preview;
+      }
+    }
+    return samples.map((sample) => ({ ...sample, ms: median(sample.runs) }));
   }
 
   const rows = (count: number) => ({
@@ -583,15 +602,21 @@ describe("tool result preview cost", function () {
   });
 
   it("previews 3,000 rows of five-entry arrays and a 1,000-item listing in linear time", function () {
-    const big = timed(rows(3_000));
-    const small = timed(rows(1_000));
-    const items = timed(listing(1_000));
+    const [big, small, items] = timedTogether([
+      rows(3_000),
+      rows(1_000),
+      listing(1_000),
+    ]);
     assert.isBelow(big.ms, 50, `3,000 rows took ${big.ms.toFixed(1)} ms`);
     assert.isBelow(items.ms, 30, `1,000 items took ${items.ms.toFixed(1)} ms`);
+    const ratios = big.runs.map(
+      (ms, index) => ms / Math.max(small.runs[index], 1),
+    );
     assert.isBelow(
-      big.ms,
-      4 * Math.max(small.ms, 1),
-      `3,000 rows ${big.ms.toFixed(1)} ms vs 1,000 rows ${small.ms.toFixed(1)} ms`,
+      median(ratios),
+      4,
+      `paired ratios ${ratios.map((ratio) => ratio.toFixed(2)).join(", ")}; ` +
+        `3,000 rows ${big.ms.toFixed(1)} ms vs 1,000 rows ${small.ms.toFixed(1)} ms`,
     );
     for (const { preview } of [big, small, items]) {
       assert.exists(preview);
