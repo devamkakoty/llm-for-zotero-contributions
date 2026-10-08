@@ -2,6 +2,7 @@ import { assert } from "chai";
 import { updateHeaderSpacing } from "../src/modules/contextPanel/setupHandlers/controllers/headerSpacing";
 import { applyTaskProgressToggleState } from "../src/modules/contextPanel/taskProgress/toggleButton";
 import type { WorkflowTestApi } from "../src/modules/contextPanel/workflowTestTypes";
+import { waitForNativeWindowFrame } from "./nativeWindowReadiness";
 
 describe("workflow: standalone responsive chrome", function () {
   this.timeout(45000);
@@ -20,6 +21,7 @@ describe("workflow: standalone responsive chrome", function () {
     });
     await api.openStandaloneForItem(fixture.parentItemId);
     win = (Zotero as any).LLMForZotero.data.standaloneWindow;
+    await waitForNativeWindowFrame(win);
   });
 
   afterEach(async function () {
@@ -105,9 +107,7 @@ describe("workflow: standalone responsive chrome", function () {
           panel.style.setProperty("--llm-font-scale", String(scale));
           for (const width of [320, 340, 380, 500]) {
             panel.style.width = `${width}px`;
-            await new Promise<void>((resolve) =>
-              win.requestAnimationFrame(() => resolve()),
-            );
+            await waitForNativeWindowFrame(win);
             updateHeaderSpacing(navRow);
             if (width >= 380) {
               assert.equal(
@@ -245,17 +245,13 @@ describe("workflow: standalone responsive chrome", function () {
     const before = sidebar.getBoundingClientRect().width;
     const widths: number[] = [];
     const start = win.performance!.now();
-    const sampling = new Promise<void>((resolve) => {
-      const sample = () => {
+    const sampling = (async () => {
+      do {
+        await waitForNativeWindowFrame(win);
         widths.push(sidebar.getBoundingClientRect().width);
-        if (win.performance!.now() - start < 600)
-          win.requestAnimationFrame(sample);
-        else resolve();
-      };
-      win.requestAnimationFrame(sample);
-    });
-    await api.resizeStandaloneWindow(650, 650);
-    await sampling;
+      } while (win.performance!.now() - start < 600);
+    })();
+    await Promise.all([api.resizeStandaloneWindow(650, 650), sampling]);
     assert.equal(sidebar.getAttribute("data-sidebar-state"), "collapsed");
     assert.equal(sidebar.getBoundingClientRect().width, 0);
     assert.isTrue(
@@ -287,11 +283,13 @@ describe("workflow: standalone responsive chrome", function () {
       doc.querySelector(selector)!.getBoundingClientRect();
     const actionWidth = () => rect(".llm-standalone-icon-export").width;
     await api.resizeStandaloneWindow(1000, 650);
+    await waitForNativeWindowFrame(win);
     const wideAction = actionWidth();
     for (const scale of [1, 1.8]) {
       root.style.setProperty("--llm-font-scale", String(scale));
       for (const width of [700, 550, 500]) {
         await api.resizeStandaloneWindow(width, 650);
+        await waitForNativeWindowFrame(win);
         const leading = rect(".llm-standalone-tab-row-leading");
         const tabs = rect(".llm-standalone-tab-row .llm-standalone-tab-group");
         assert.isAtMost(
