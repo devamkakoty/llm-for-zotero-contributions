@@ -133,6 +133,28 @@ export function installOwnedNativeSignalHandlers(
   };
 }
 
+async function reportWorkflowRuntimeVersion(binary) {
+  if (!binary) return;
+  for (const iniPath of [
+    join(dirname(binary), "app", "application.ini"),
+    join(dirname(binary), "application.ini"),
+  ]) {
+    try {
+      const ini = await readFile(iniPath, "utf8");
+      const version = ini
+        .split(/\r?\n/)
+        .filter((line) => /^(Version|BuildID)=/.test(line));
+      console.log(
+        `Native workflow runtime: ${version.join(", ") || "unknown"}`,
+      );
+      return;
+    } catch {
+      // Zotero distributions use either an app subdirectory or the root.
+    }
+  }
+  console.log("Native workflow runtime version unavailable");
+}
+
 export async function runWorkflowScaffold({
   abortOnFail = true,
   configure,
@@ -160,33 +182,15 @@ export async function runWorkflowScaffold({
   try {
     await runner.run();
     observer.assertAttached();
+    await reportWorkflowRuntimeVersion(
+      process.env.ZOTERO_PLUGIN_ZOTERO_BIN_PATH,
+    );
     // Scaffold resolves run() after startup. Keep cancellation ownership until
     // the native test process actually closes.
     await observer.waitForOwnedClose();
   } finally {
     removeSignalHandlers();
     observer.stop();
-  }
-  const binary = process.env.ZOTERO_PLUGIN_ZOTERO_BIN_PATH;
-  if (binary) {
-    for (const iniPath of [
-      join(dirname(binary), "app", "application.ini"),
-      join(dirname(binary), "application.ini"),
-    ]) {
-      try {
-        const ini = await readFile(iniPath, "utf8");
-        const version = ini
-          .split(/\r?\n/)
-          .filter((line) => /^(Version|BuildID)=/.test(line));
-        console.log(
-          `Native workflow runtime: ${version.join(", ") || "unknown"}`,
-        );
-        return;
-      } catch {
-        // Zotero distributions use either an app subdirectory or the root.
-      }
-    }
-    console.log("Native workflow runtime version unavailable");
   }
 }
 
