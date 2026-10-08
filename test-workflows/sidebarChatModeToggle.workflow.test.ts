@@ -24,7 +24,7 @@ type Tab = "paper" | "library";
 const PREF_PREFIX = "extensions.zotero.llmforzotero";
 const LAYOUT_PREF = `${PREF_PREFIX}.sidebarLayout`;
 
-/** Every icon in the header row; the open switch must cover none of them. */
+/** Always-present icons; the conditional Task progress action is added below. */
 const HEADER_BUTTONS = [
   "#llm-history-new",
   "#llm-history-toggle",
@@ -35,6 +35,16 @@ const HEADER_BUTTONS = [
   "#llm-export",
   "#llm-clear",
 ];
+
+function visibleTaskProgressControls(root: ParentNode): string[] {
+  const button = root.querySelector<HTMLElement>("#llm-task-progress-toggle");
+  assert.isOk(button, "the header builds its Task progress control");
+  // Dedicated Task progress tests cover applicability and the compact-layout
+  // visibility rule. Whenever shown here it must also clear the mode switch.
+  return button!.getBoundingClientRect().width > 0
+    ? ["#llm-task-progress-toggle"]
+    : [];
+}
 
 function getWorkflowTestApi(): WorkflowTestApi {
   const api = (Zotero as any).LLMForZotero?.api?.workflowTest;
@@ -380,6 +390,7 @@ describe("workflow: sidebar chat mode toggle", function () {
         ".llm-header-runtime-divider",
         "#llm-codex-system-toggle",
         "#llm-claude-system-toggle",
+        ...visibleTaskProgressControls(section),
         "#llm-popout",
         "#llm-settings",
         "#llm-export",
@@ -468,6 +479,7 @@ describe("workflow: sidebar chat mode toggle", function () {
         "#llm-mode-capsule",
         "#llm-codex-system-toggle",
         "#llm-claude-system-toggle",
+        ...visibleTaskProgressControls(section),
         "#llm-popout",
         "#llm-settings",
         "#llm-export",
@@ -502,7 +514,10 @@ describe("workflow: sidebar chat mode toggle", function () {
       if (compression === 0) {
         assert.closeTo(codex.left - chip.right, 4, 0.6, "chip to Codex");
       }
-      for (const selector of HEADER_BUTTONS) {
+      for (const selector of [
+        ...HEADER_BUTTONS,
+        ...visibleTaskProgressControls(section),
+      ]) {
         const rect = section.querySelector(selector)!.getBoundingClientRect();
         assert.isFalse(
           intersects(rect, chipRect),
@@ -537,7 +552,10 @@ describe("workflow: sidebar chat mode toggle", function () {
         .querySelector(".llm-header-nav-row")!
         .getBoundingClientRect();
       assert.isAbove(track.bottom, navRow.bottom, "it reaches over the chat");
-      for (const selector of HEADER_BUTTONS) {
+      for (const selector of [
+        ...HEADER_BUTTONS,
+        ...visibleTaskProgressControls(section),
+      ]) {
         const rect = section.querySelector(selector)!.getBoundingClientRect();
         assert.isAbove(rect.width, 0, `${selector} is visible`);
         assert.isFalse(

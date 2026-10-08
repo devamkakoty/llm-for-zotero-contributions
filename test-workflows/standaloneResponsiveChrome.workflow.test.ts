@@ -1,5 +1,6 @@
 import { assert } from "chai";
 import { updateHeaderSpacing } from "../src/modules/contextPanel/setupHandlers/controllers/headerSpacing";
+import { applyTaskProgressToggleState } from "../src/modules/contextPanel/taskProgress/toggleButton";
 import type { WorkflowTestApi } from "../src/modules/contextPanel/workflowTestTypes";
 
 describe("workflow: standalone responsive chrome", function () {
@@ -29,6 +30,12 @@ describe("workflow: standalone responsive chrome", function () {
 
   it("keeps each embedded header row on one line at every font size", async function () {
     const doc = win.document;
+    const layoutAttribute = "data-llm-sidebar-layout";
+    const previousLayout = doc.documentElement.getAttribute(layoutAttribute);
+    // This fixture exercises the independent, two-row embedded header.
+    // Do not inherit a previous suite's stacked layout, which deliberately
+    // hides the toggle row and narrow Task progress action.
+    doc.documentElement.setAttribute(layoutAttribute, "independent");
     const panel = doc.createElement("div");
     panel.className = "llm-panel";
     // The native XUL window has no HTML body. Keep this fixture independent
@@ -72,6 +79,26 @@ describe("workflow: standalone responsive chrome", function () {
         "#llm-header-runtime-controls",
       ) as HTMLElement;
       runtimeWrapper.style.display = "";
+      assert.deepEqual(
+        Array.from(header.querySelectorAll(".llm-header-actions > button")).map(
+          (button) => (button as HTMLElement).id,
+        ),
+        [
+          "llm-task-progress-toggle",
+          "llm-popout",
+          "llm-settings",
+          "llm-export",
+          "llm-clear",
+        ],
+        "the embedded header includes its Task progress action",
+      );
+      // The standalone source leaves its inner header button unbound/hidden.
+      // Exercise the full embedded action row, including the new control,
+      // rather than silently dropping it from the geometry checks.
+      applyTaskProgressToggleState(
+        header.querySelector<HTMLButtonElement>("#llm-task-progress-toggle")!,
+        { applies: true, shown: false },
+      );
       for (const label of ["Paper chat", "Note chat", "Web chat"]) {
         paperTabLabel.textContent = label;
         for (const scale of [0.8, 1.2, 1.8]) {
@@ -105,7 +132,7 @@ describe("workflow: standalone responsive chrome", function () {
                 button.getBoundingClientRect().width,
                 bounds.width <= 380 ? 24 : 28,
                 0.5,
-                `Action-button padding must be preserved: ${context}`,
+                `Action-button padding must be preserved: ${context}, ${button.id}, display=${win.getComputedStyle(button)?.display}, layout=${doc.documentElement.getAttribute(layoutAttribute)}`,
               );
             }
             for (const button of Array.from(
@@ -135,7 +162,7 @@ describe("workflow: standalone responsive chrome", function () {
             );
             assert.lengthOf(
               buttons,
-              10,
+              11,
               `All header controls visible: ${context}`,
             );
             const toggleRowRect = toggleRow.getBoundingClientRect();
@@ -206,6 +233,9 @@ describe("workflow: standalone responsive chrome", function () {
       }
     } finally {
       panel.remove();
+      if (previousLayout === null)
+        doc.documentElement.removeAttribute(layoutAttribute);
+      else doc.documentElement.setAttribute(layoutAttribute, previousLayout);
     }
   });
 
