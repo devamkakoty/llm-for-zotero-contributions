@@ -71,6 +71,8 @@ import {
   activeGlobalConversationByLibrary,
   activePaperConversationByPaper,
   chatHistory,
+  draftInputCache,
+  webChatDraftInputCache,
   selectedRuntimeModeCache,
   loadedConversationKeys,
   webChatIsolatedConversationKeys,
@@ -209,6 +211,7 @@ import {
   bindEmbeddedPanelHost,
   bindTestPanelHost,
   capturePanelOperationLease,
+  evaluatePanelOwnership,
   resolveSelectionSurfaceForBody,
 } from "./panelHostOwnership";
 import {
@@ -5739,6 +5742,24 @@ export function installWorkflowTestHarness(targetAddon: {
 }): void {
   if (__env__ !== "test" && __env__ !== "development") return;
   targetAddon.api.workflowTest = {
+    inspectNativeDraftPersistence(root, expectedKey, expectedDraft) {
+      assertWorkflowTestEnabled();
+      const body = root.parentElement;
+      const item = body && activeContextPanels.get(body)?.();
+      const webchat = root.dataset.webchatMode === "true";
+      const cache = webchat ? webChatDraftInputCache : draftInputCache;
+      return {
+        expectedKey,
+        mountedKey: Number(root.dataset.itemId || 0),
+        handlerKey: item ? getConversationKey(item) : 0,
+        handlersAttached: root.dataset.handlersAttached || "",
+        handlersInitialized: root.dataset.handlersInitialized || "",
+        ownership: body ? evaluatePanelOwnership(body, item) : "unresolved",
+        cacheKind: webchat ? "webchat" : "standard",
+        cacheHasExpectedKey: cache.has(expectedKey),
+        cacheMatchesExpected: cache.get(expectedKey) === expectedDraft,
+      };
+    },
     planRetrievalQuery: resolveRetrievalQueryPlan,
     async libraryRetrieveBench(input) {
       const { LibraryRetrieveService } =
