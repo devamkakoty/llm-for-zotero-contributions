@@ -8,6 +8,12 @@ async function waitForQuestionLayout(card: HTMLElement): Promise<void> {
   let stableSamples = 0;
   let diagnostic = "";
   while (Date.now() < deadline) {
+    const win = card.ownerDocument.defaultView as any;
+    // Native visibility can change after setup. A normal Windows window can
+    // still be occluded: windowState 3 means normal, not minimized. Geometry
+    // checks need a visible test host so rAF/ResizeObserver can settle.
+    if (win?.windowState === win?.STATE_MINIMIZED) win.restore();
+    if (card.ownerDocument.visibilityState !== "visible") win?.focus();
     const viewport = card.querySelector<HTMLElement>(
       ".llm-planning-question-viewport",
     );
@@ -41,6 +47,7 @@ async function waitForQuestionLayout(card: HTMLElement): Promise<void> {
     });
     const rendered =
       card.isConnected &&
+      card.ownerDocument.visibilityState === "visible" &&
       card.dataset.questionStackReady === "true" &&
       elements.length > 3 &&
       activeHeight > 0 &&
@@ -68,9 +75,8 @@ describe("workflow: question card readability", function () {
     });
     try {
       const win = Zotero.getMainWindow();
-      // Windows automation can start this disposable test host minimized.
-      // A hidden document throttles rendering/ResizeObserver notifications,
-      // so restore the native host before testing responsive geometry.
+      // Restore a minimized disposable host; waitForQuestionLayout separately
+      // checks actual visibility, including an otherwise normal occluded host.
       if (win.windowState === win.STATE_MINIMIZED) win.restore();
       const panel = await api.renderPanelForItem(fixture.parentItemId);
       const doc = win.document;

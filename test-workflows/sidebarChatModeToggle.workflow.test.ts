@@ -12,6 +12,7 @@
  */
 import { assert } from "chai";
 import { getReaderContextPanelForTab } from "../src/modules/contextPanel/readerPopupPanelRouting";
+import { waitForNativeWindowFrame } from "./nativeWindowReadiness";
 import type {
   WorkflowTestApi,
   WorkflowTestDiagnostics,
@@ -537,7 +538,19 @@ describe("workflow: sidebar chat mode toggle", function () {
     }
 
     /** The open switch: down from the chip, in its column, over the chat. */
-    function assertOpenSwitch(section: HTMLElement, rows: [Tab, Tab]): void {
+    async function assertOpenSwitch(
+      section: HTMLElement,
+      rows: [Tab, Tab],
+    ): Promise<void> {
+      await waitForNativeWindowFrame(win);
+      await until(() => {
+        const capsule = chipOf(section);
+        const track = capsule.querySelector(".llm-mode-switch-track")!;
+        return (
+          capsule.dataset.expanded === "true" &&
+          Math.abs(track.getBoundingClientRect().height - 52) <= 0.5
+        );
+      }, "the open switch reaches its two-row height");
       const capsule = chipOf(section);
       assert.equal(capsule.dataset.expanded, "true", "the switch is open");
       const chipRect = capsule.getBoundingClientRect();
@@ -770,7 +783,7 @@ describe("workflow: sidebar chat mode toggle", function () {
       );
       assert.isTrue(capsule.matches(":hover"), "a real hover");
       await settleMotion();
-      assertOpenSwitch(section, ["paper", "library"]);
+      await assertOpenSwitch(section, ["paper", "library"]);
       assertPillOn(section, "paper");
       assert.closeTo(
         capsule.getBoundingClientRect().width,
@@ -802,7 +815,7 @@ describe("workflow: sidebar chat mode toggle", function () {
         "the switch stays open under the pointer",
       );
       await settleMotion();
-      assertOpenSwitch(section, ["paper", "library"]);
+      await assertOpenSwitch(section, ["paper", "library"]);
       assertPillOn(section, "library");
       // Measured against the chip: the Stacked pane itself may scroll while
       // the conversation changes.
@@ -831,7 +844,7 @@ describe("workflow: sidebar chat mode toggle", function () {
       hover(optionOf(section, "library"));
       await until(() => capsule.dataset.expanded === "true", "hover reopens");
       await settleMotion();
-      assertOpenSwitch(section, ["library", "paper"]);
+      await assertOpenSwitch(section, ["library", "paper"]);
       clickOn(optionOf(section, "paper"));
       await until(
         () => root.dataset.conversationKind === "paper",
@@ -847,7 +860,7 @@ describe("workflow: sidebar chat mode toggle", function () {
       hover(optionOf(section, "paper"));
       await until(() => capsule.dataset.expanded === "true", "hover reopens");
       await settleMotion();
-      assertOpenSwitch(section, ["paper", "library"]);
+      await assertOpenSwitch(section, ["paper", "library"]);
       clickOn(optionOf(section, "library"));
       await until(
         () => root.dataset.conversationKind === "global",
@@ -935,7 +948,7 @@ describe("workflow: sidebar chat mode toggle", function () {
           "and picks nothing",
         );
         await settleMotion();
-        assertOpenSwitch(section, ["paper", "library"]);
+        await assertOpenSwitch(section, ["paper", "library"]);
 
         key(paper, "ArrowDown");
         await until(
@@ -949,7 +962,7 @@ describe("workflow: sidebar chat mode toggle", function () {
         );
         assertActiveTab(root, "library");
         await settleMotion();
-        assertOpenSwitch(section, ["paper", "library"]);
+        await assertOpenSwitch(section, ["paper", "library"]);
         assertPillOn(section, "library");
 
         key(library, "ArrowUp");
@@ -1030,7 +1043,7 @@ describe("workflow: sidebar chat mode toggle", function () {
           "hover opens the switch",
         );
         await settleMotion();
-        assertOpenSwitch(section, ["paper", "library"]);
+        await assertOpenSwitch(section, ["paper", "library"]);
         await capture(`header-stacked-open-${theme}.png`);
         parkPointer(section);
         await until(
