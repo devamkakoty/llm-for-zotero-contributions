@@ -178,11 +178,9 @@ describe("workflow native exit guard", function () {
     );
     let owned: ReturnType<typeof spawn> | null = null;
     try {
-      owned = spawn(
-        process.execPath,
-        ["-e", "setInterval(() => {}, 1000)"],
-        { stdio: ["ignore", "ignore", "pipe"] },
-      );
+      owned = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], {
+        stdio: ["ignore", "ignore", "pipe"],
+      });
       await once(owned, "spawn");
       observer.assertAttached();
       assert.isTrue(observer.requestOwnedStop());

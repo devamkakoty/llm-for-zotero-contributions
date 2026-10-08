@@ -594,16 +594,10 @@ describe("conversationSelection", function () {
           const newer = prime({ ...params, conversationKey: newerKey });
           await flushPaperRestoreSelectionWrites();
 
-          assert.equal(
-            recallActive({ ...paperScopeFor(), surface }),
-            newerKey,
-          );
+          assert.equal(recallActive({ ...paperScopeFor(), surface }), newerKey);
           newer.restore();
           await flushPaperRestoreSelectionWrites();
-          assert.equal(
-            recallActive({ ...paperScopeFor(), surface }),
-            olderKey,
-          );
+          assert.equal(recallActive({ ...paperScopeFor(), surface }), olderKey);
           assert.equal(
             recallMode(fixture.system, LIBRARY_ID, {
               source: "active+persisted",
