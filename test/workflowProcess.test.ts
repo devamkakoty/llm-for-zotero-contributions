@@ -33,6 +33,32 @@ describe("workflow process completion evidence", function () {
     assert.isFalse(tracker.finish());
   });
 
+  for (const metadata of [
+    'Native workflow exit: {"code":0,"signal":null}',
+    "Native workflow runtime: Version=8.0.1, BuildID=20261008000000",
+    "Native workflow runtime: BuildID=20261008000000",
+    "Native workflow runtime: unknown",
+    "Native workflow runtime version unavailable",
+    " \t",
+  ]) {
+    it(`allows benign post-summary metadata: ${metadata}`, function () {
+      const tracker = createWorkflowCompletionTracker();
+      tracker.write("stdout", "✔ Test run completed - 13 passed\n");
+      tracker.write("stderr", metadata + "\n");
+      assert.isTrue(tracker.finish());
+    });
+  }
+
+  for (const ending of ["\n", ""]) {
+    it(`rejects oversized trailing output ${ending ? "with" : "without"} a newline`, function () {
+      const tracker = createWorkflowCompletionTracker();
+      tracker.write("stdout", "✔ Test run completed - 13 passed\n");
+      tracker.write("stderr", "x".repeat(10000));
+      tracker.write("stderr", "x".repeat(10000) + ending);
+      assert.isFalse(tracker.finish());
+    });
+  }
+
   for (const [name, output] of [
     ["missing completion", "✔ one individual test 123ms\n"],
     ["failed completion", "✖ Test run completed - 13 passed, 1 failed\n"],
@@ -51,6 +77,26 @@ describe("workflow process completion evidence", function () {
     [
       "oversized line",
       "x".repeat(20000) + "✔ Test run completed - 13 passed\n",
+    ],
+    [
+      "plain cleanup error",
+      "✔ Test run completed - 13 passed\nfatal cleanup error\n",
+    ],
+    [
+      "unterminated cleanup error",
+      "✔ Test run completed - 13 passed\nfatal cleanup error",
+    ],
+    [
+      "nonzero native exit metadata",
+      '✔ Test run completed - 13 passed\nNative workflow exit: {"code":139,"signal":null}\n',
+    ],
+    [
+      "signaled native exit metadata",
+      '✔ Test run completed - 13 passed\nNative workflow exit: {"code":0,"signal":"SIGTERM"}\n',
+    ],
+    [
+      "error after benign native metadata",
+      '✔ Test run completed - 13 passed\nNative workflow exit: {"code":0,"signal":null}\nfatal cleanup error\n',
     ],
   ]) {
     it(`rejects ${name}`, function () {
@@ -103,6 +149,15 @@ describe("workflow process completion evidence", function () {
       'console.log("✔ Test run completed - 13 passed"); process.exitCode = 7;',
     );
     assert.equal(result.code, 7);
+  });
+
+  it("rejects trailing stderr cleanup errors even if the child exits zero", async function () {
+    const result = await run(
+      'console.log("✔ Test run completed - 13 passed"); setTimeout(() => console.error("fatal cleanup error"), 50);',
+    );
+    assert.equal(result.code, 1);
+    assert.include(result.output, "fatal cleanup error");
+    assert.include(result.output, "did not report");
   });
 
   it("rejects a failed summary even if the child exits zero", async function () {

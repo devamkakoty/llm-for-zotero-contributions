@@ -218,14 +218,19 @@ describe("workflow: dedicated native chat pane", function () {
     );
     const binary = target.atob(canvas.toDataURL("image/png").split(",")[1]);
     await win.IOUtils.write(
-      `${Zotero.DataDirectory.dir}/${filename}`,
+      PathUtils.join(Zotero.DataDirectory.dir, filename),
       Uint8Array.from(binary, (char: any) => char.charCodeAt(0)),
     );
   }
 
   before(async function () {
     // Native runner always launches an isolated .scaffold/test profile/data.
-    assert.include(Zotero.DataDirectory.dir, ".scaffold/test/data");
+    assert.isTrue(
+      Zotero.DataDirectory.dir
+        .replace(/\\/g, "/")
+        .endsWith("/.scaffold/test/data"),
+      "native test data stays inside the isolated scaffold profile",
+    );
     api = (Zotero as any).LLMForZotero.api.workflowTest;
     await api.reset();
     originalLayout = Zotero.Prefs.get(layoutPref, true);
@@ -332,6 +337,15 @@ describe("workflow: dedicated native chat pane", function () {
       const details = win.document.getElementById("zotero-item-details");
       const section = details.querySelector(".llm-dedicated-chat-pane");
       const panel = () => section.querySelector("#llm-main");
+      // Selecting an item and opening its native pane do not await the
+      // extension's asynchronous conversation refresh. Capture the draft
+      // only after this exact paper context is bound, not a previous panel.
+      await until(
+        () =>
+          panel()?.dataset.conversationKind === "paper" &&
+          panel()?.dataset.itemId === String(fixtures[0].parentItemId),
+        "selected paper context settles before the draft snapshot",
+      );
       const previousKey = panel().dataset.itemId;
       const input = panel().querySelector("#llm-input");
       input.value = "Preserve the previous draft";
@@ -473,7 +487,7 @@ describe("workflow: dedicated native chat pane", function () {
       await win.ZoteroPane.selectItem(fixtures[0].parentItemId);
       await until(
         () => panel().dataset.itemId === previousKey,
-        "return to the original paper chat",
+        `return to the original paper chat ${previousKey}; fixture=${fixtures[0].parentItemId}`,
       );
       assert.equal(
         panel().querySelector("#llm-input").value,
@@ -685,7 +699,7 @@ describe("workflow: dedicated native chat pane", function () {
       );
     const binary = win.atob(canvas.toDataURL("image/png").split(",")[1]);
     await (win.IOUtils as any).write(
-      `${Zotero.DataDirectory.dir}/dedicated-chat-pane.png`,
+      PathUtils.join(Zotero.DataDirectory.dir, "dedicated-chat-pane.png"),
       Uint8Array.from(binary, (char: any) => char.charCodeAt(0)),
     );
   });
