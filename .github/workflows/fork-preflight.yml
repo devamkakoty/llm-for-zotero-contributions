@@ -60,3 +60,22 @@ jobs:
           if test -f Zotero_linux-x86_64/application.ini; then
             grep -E '^(Version|BuildID)=' Zotero_linux-x86_64/application.ini
           fi
+  database-shutdown-diagnostic:
+    if: github.repository == 'devamkakoty/llm-for-zotero-contributions'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      LLM_FOR_ZOTERO_TEST_ENTRIES: test-workflows/libraryTextIndex
+    steps:
+      - name: Checkout exact database diagnostic commit
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Set up Node 24 without a persistent cache
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - name: Install locked dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Isolate database workflows and capture native shutdown
+        run: node scripts/fork-workflow-diagnostic.mjs

@@ -20,6 +20,16 @@ if (process.argv.includes("--child")) {
         }
         const runtime = `  runner.on("start", function () {
     send({ type: "debug", data: { event: "native-runtime", zotero: Zotero.version, platform: navigator.platform } });
+    // AsyncShutdown's detailed blocker state goes to the console service,
+    // not the native stderr captured by Scaffold. Mirror only relevant
+    // diagnostics into the disposable run's stderr; do not change shutdown.
+    Services.console.registerListener({
+      observe(message) {
+        const text = String(message.message || "");
+        if (/AsyncShutdown|Sqlite connection/.test(text))
+          dump("Fork shutdown diagnostic: " + text.slice(0, 12000) + "\\n");
+      }
+    });
   });`;
         const instrumentation = ["test", "hook", "hook end"]
           .map(
