@@ -71,6 +71,10 @@ export function observeWorkflowNativeProcess(
   let attached = false;
   let ownedNative = null;
   let stopRequested = false;
+  let resolveOwnedClose;
+  const ownedClose = new Promise((resolveClose) => {
+    resolveOwnedClose = resolveClose;
+  });
   const normalized = (path) => {
     const absolute = resolve(path);
     return process.platform === "win32" ? absolute.toLowerCase() : absolute;
@@ -87,6 +91,7 @@ export function observeWorkflowNativeProcess(
       attachNativeExitGuard(runner, { ...options, native });
       attached = true;
       ownedNative = native;
+      native.once("close", () => resolveOwnedClose());
       if (stopRequested) native.kill("SIGTERM");
     });
   };
@@ -108,6 +113,23 @@ export function observeWorkflowNativeProcess(
         return false;
       return ownedNative.kill("SIGTERM");
     },
+    waitForOwnedClose() {
+      if (!attached) throw new Error("Native workflow spawn was not observed");
+      return ownedClose;
+    },
+  };
+}
+
+export function installOwnedNativeSignalHandlers(
+  observer,
+  signalSource = process,
+) {
+  const stopOwnedNative = () => observer.requestOwnedStop();
+  signalSource.on("SIGINT", stopOwnedNative);
+  signalSource.on("SIGTERM", stopOwnedNative);
+  return () => {
+    signalSource.removeListener("SIGINT", stopOwnedNative);
+    signalSource.removeListener("SIGTERM", stopOwnedNative);
   };
 }
 
@@ -134,15 +156,15 @@ export async function runWorkflowScaffold({
   });
   // Never call Scaffold's machine-wide cancellation fallback. Stop only the
   // native process observed for this disposable workflow run.
-  const stopOwnedNative = () => observer.requestOwnedStop();
-  process.on("SIGINT", stopOwnedNative);
-  process.on("SIGTERM", stopOwnedNative);
+  const removeSignalHandlers = installOwnedNativeSignalHandlers(observer);
   try {
     await runner.run();
     observer.assertAttached();
+    // Scaffold resolves run() after startup. Keep cancellation ownership until
+    // the native test process actually closes.
+    await observer.waitForOwnedClose();
   } finally {
-    process.removeListener("SIGINT", stopOwnedNative);
-    process.removeListener("SIGTERM", stopOwnedNative);
+    removeSignalHandlers();
     observer.stop();
   }
   const binary = process.env.ZOTERO_PLUGIN_ZOTERO_BIN_PATH;
