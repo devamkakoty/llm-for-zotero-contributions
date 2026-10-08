@@ -84,6 +84,30 @@ describe("workflow native exit guard", function () {
     assert.isBelow(reports[1].length, 16500);
   });
 
+  for (const exitCode of [0, 139]) {
+    it(`captures bounded native stdout only on abnormal exit (${exitCode})`, function () {
+      const native = Object.assign(new EventEmitter(), {
+        stdout: new PassThrough(),
+      });
+      const reports: string[] = [];
+      const runner = { zotero: { zotero: native }, onZoteroExit() {} };
+      attachNativeExitGuard(runner, {
+        onAbnormalExit: () => {},
+        diagnostics: true,
+        report: (message: string) => reports.push(message),
+      });
+      native.stdout.write("x".repeat(20000));
+      native.stdout.write("AsyncShutdown timeout: fixture connection");
+      native.emit("close", exitCode, null);
+      assert.equal(native.stdout.readableLength, 0);
+      assert.lengthOf(reports, exitCode === 0 ? 1 : 2);
+      if (exitCode !== 0) {
+        assert.include(reports[1], "AsyncShutdown timeout");
+        assert.isBelow(reports[1].length, 16500);
+      }
+    });
+  }
+
   it("does not print native stderr without explicit diagnostics", function () {
     const native = Object.assign(new EventEmitter(), {
       stderr: new PassThrough(),

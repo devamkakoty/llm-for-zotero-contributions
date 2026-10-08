@@ -12,8 +12,9 @@ async function phase(name, test) {
   await writeFile(
     `${entries}/restart.test.ts`,
     `import { assert } from "chai";
-import { interruptRecoveryScenario, resumeRecoveryScenario, cleanupRecoveryScenario } from "${helper}";
+import { interruptRecoveryScenario, resumeRecoveryScenario, cleanupRecoveryScenario, disposeRecoveryScenarioResources } from "${helper}";
 describe("MinerU process restart: ${name}",function(){this.timeout(120000);
+after(disposeRecoveryScenarioResources);
 it("${name}",async function(){
 const io=(globalThis as any).IOUtils;
 const recordPath=PathUtils.join(Zotero.DataDirectory.dir,"mineru-restart-records.json");

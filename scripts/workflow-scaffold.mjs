@@ -20,6 +20,7 @@ export function attachNativeExitGuard(
   let nativeExit = null;
   let finished = false;
   let stderrTail = "";
+  let stdoutTail = "";
   // Scaffold drains stdout but leaves stderr piped and unread. Drain it too:
   // a full OS pipe can block the native process, including during shutdown.
   // Only the explicit disposable-fixture diagnostic emits a bounded tail.
@@ -27,11 +28,22 @@ export function attachNativeExitGuard(
   native.stderr?.on("data", (chunk) => {
     if (diagnostics) stderrTail = (stderrTail + chunk).slice(-16384);
   });
+  if (diagnostics) {
+    // Mozilla AsyncShutdown uses dump(), hence native stdout rather than
+    // the console service. Scaffold otherwise drains and discards this.
+    native.stdout?.setEncoding("utf8");
+    native.stdout?.on("data", (chunk) => {
+      stdoutTail = (stdoutTail + chunk).slice(-16384);
+    });
+  }
   native.prependListener("close", (code, signal) => {
     nativeExit = { code, signal };
     report(`Native workflow exit: ${JSON.stringify(nativeExit)}`);
     if ((code !== 0 || signal) && stderrTail) {
       report(`Native workflow stderr tail:\n${stderrTail}`);
+    }
+    if ((code !== 0 || signal) && stdoutTail) {
+      report(`Native workflow stdout tail:\n${stdoutTail}`);
     }
   });
   runner.onZoteroExit = () => {
