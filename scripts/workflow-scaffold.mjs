@@ -7,6 +7,7 @@ import { channel } from "node:diagnostics_channel";
 export function attachNativeExitGuard(
   runner,
   {
+    beforeExit,
     onAbnormalExit,
     report = console.error,
     diagnostics = false,
@@ -49,13 +50,27 @@ export function attachNativeExitGuard(
   runner.onZoteroExit = () => {
     if (finished) return;
     finished = true;
-    if (!nativeExit || nativeExit.code !== 0 || nativeExit.signal) {
-      const code = nativeExit?.code;
-      return onAbnormalExit(
-        Number.isInteger(code) && code > 0 && code <= 255 ? code : 1,
+    const failCleanup = (error) => {
+      report(
+        `Workflow cleanup failed: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
       );
-    }
-    return original.call(runner);
+      return onAbnormalExit(1);
+    };
+    const exitAfterCleanup = () => {
+      if (!nativeExit || nativeExit.code !== 0 || nativeExit.signal) {
+        const code = nativeExit?.code;
+        return onAbnormalExit(
+          Number.isInteger(code) && code > 0 && code <= 255 ? code : 1,
+        );
+      }
+      return original.call(runner);
+    };
+    if (!beforeExit) return exitAfterCleanup();
+    return Promise.resolve()
+      .then(beforeExit)
+      .then(exitAfterCleanup, failCleanup);
   };
   // Also handle a close before Scaffold finishes connecting its debugger and
   // registers its own callback. The once guard makes the later callback safe.
@@ -168,6 +183,7 @@ export async function runWorkflowScaffold({
   const runner = new Test(context);
   const observer = observeWorkflowNativeProcess(runner, {
     diagnostics,
+    beforeExit: () => runner.testBundler?.esbuildContext?.dispose?.(),
     onAbnormalExit(code) {
       // Same cleanup hooks as Scaffold's onZoteroExit, but never rewrite an
       // abnormal native status to zero merely because assertions passed.
@@ -195,5 +211,5 @@ export async function runWorkflowScaffold({
 }
 
 if (process.argv.includes("--workflow-child")) {
-  await runWorkflowScaffold();
+  await runWorkflowScaffold({ diagnostics: process.env.CI === "true" });
 }

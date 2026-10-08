@@ -36,6 +36,65 @@ describe("workflow native exit guard", function () {
     assert.isEmpty(test.abnormal);
   });
 
+  it("disposes workflow build resources before normal exit", async function () {
+    const native = new EventEmitter();
+    const order: string[] = [];
+    let releaseCleanup!: () => void;
+    const cleanup = new Promise<void>((resolve) => {
+      releaseCleanup = resolve;
+    });
+    const runner = {
+      zotero: { zotero: native },
+      onZoteroExit() {
+        order.push("exit");
+      },
+    };
+    native.on("close", () => runner.onZoteroExit());
+    attachNativeExitGuard(runner, {
+      beforeExit: async () => {
+        order.push("cleanup-start");
+        await cleanup;
+        order.push("cleanup-end");
+      },
+      onAbnormalExit: () => order.push("abnormal"),
+      report: () => {},
+    });
+
+    native.emit("close", 0, null);
+    await Promise.resolve();
+    assert.deepEqual(order, ["cleanup-start"]);
+    releaseCleanup();
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.deepEqual(order, ["cleanup-start", "cleanup-end", "exit"]);
+  });
+
+  it("fails closed when workflow build cleanup fails", async function () {
+    const native = new EventEmitter();
+    const reports: string[] = [];
+    const abnormal: number[] = [];
+    let normalCalls = 0;
+    const runner = {
+      zotero: { zotero: native },
+      onZoteroExit() {
+        normalCalls++;
+      },
+    };
+    native.on("close", () => runner.onZoteroExit());
+    attachNativeExitGuard(runner, {
+      beforeExit: async () => {
+        throw new Error("esbuild dispose failed");
+      },
+      onAbnormalExit: (code: number) => abnormal.push(code),
+      report: (message: string) => reports.push(message),
+    });
+
+    native.emit("close", 0, null);
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(normalCalls, 0);
+    assert.deepEqual(abnormal, [1]);
+    assert.include(reports.at(-1), "esbuild dispose failed");
+  });
+
   for (const [code, signal, expected] of [
     [139, null, 139],
     [7, null, 7],
