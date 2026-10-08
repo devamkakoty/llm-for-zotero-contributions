@@ -115,7 +115,10 @@ async function diagnosticsMessage(
 }
 
 describe("workflow: selected item context send", function () {
-  this.timeout(30000);
+  // This suite follows hundreds of native workflow cases in the complete gate.
+  // A busy Zotero DB can make the test-boundary reset exceed the old 30s
+  // ceiling even though the same file is green in the standalone workflow job.
+  this.timeout(90000);
 
   let api: WorkflowTestApi;
   let fixture: WorkflowTestFixture | null = null;

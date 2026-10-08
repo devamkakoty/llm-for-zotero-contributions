@@ -24,6 +24,7 @@ import {
   flushTaskProgressPanels,
   listMountedTaskProgressPanelsForTests,
 } from "./taskProgress/panel";
+import { createCoalescedFrameScheduler } from "./setupHandlers/controllers/uiSchedulingController";
 import {
   clearAllTaskProgress,
   getTaskProgress,
@@ -3100,7 +3101,19 @@ async function probeTargetedRerenderScrollStability(params: {
   const win = params.panel.body.ownerDocument.defaultView;
   if (!win) throw new Error("Workflow panel has no window");
   const nextFrame = () =>
-    new Promise<void>((resolve) => win.requestAnimationFrame(() => resolve()));
+    new Promise<void>((resolve) => {
+      // A background Zotero window can expose requestAnimationFrame while
+      // throttling it indefinitely. Use the panel scheduler's bounded fallback
+      // and dispose the losing wakeup so it cannot leak into the next test.
+      const scheduler = createCoalescedFrameScheduler({
+        getWindow: () => win,
+        run: () => {
+          scheduler.dispose();
+          resolve();
+        },
+      });
+      scheduler.schedule();
+    });
 
   const expandedWrapper = wrapperForMessage(
     params.wrappers,
@@ -5013,7 +5026,7 @@ async function exerciseHighlightAwareContextRetrieval(input: {
   }
 }
 
-async function reset(): Promise<void> {
+async function performReset(): Promise<void> {
   assertWorkflowTestEnabled();
   resolveDelayedCodexPermissionCatalog?.();
   resolveDelayedCodexPermissionCatalog = null;
@@ -5055,6 +5068,17 @@ async function reset(): Promise<void> {
   forceWebChatSessionAnchorFailuresForTests(0);
   // The dragged drawer height lives for the session; a case starts without it.
   resetTaskProgressDrawerHeight();
+}
+
+let resetQueue: Promise<void> = Promise.resolve();
+
+async function reset(): Promise<void> {
+  // Mocha starts cleanup after a hook timeout without cancelling the original
+  // promise. Serialize the whole boundary so a delayed setup reset and its
+  // afterEach reset cannot tear down panels or use Zotero's DB concurrently.
+  const attempt = resetQueue.then(performReset, performReset);
+  resetQueue = attempt.catch(() => undefined);
+  await attempt;
 }
 
 function disposeWorkflowPanels(): void {
