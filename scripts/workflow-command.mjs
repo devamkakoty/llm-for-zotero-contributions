@@ -1,26 +1,21 @@
 import { fileURLToPath, URL } from "node:url";
 
-export function resolveZoteroPluginBin() {
-  return fileURLToPath(
-    new URL(
-      "../node_modules/zotero-plugin-scaffold/bin/zotero-plugin.mjs",
-      import.meta.url,
-    ),
-  );
+export function resolveWorkflowScaffoldEntrypoint() {
+  return fileURLToPath(new URL("./workflow-scaffold.mjs", import.meta.url));
 }
 
 export function createWorkflowTestCommand({
   argv = process.argv,
   env = process.env,
   execPath = process.execPath,
-  scaffoldBin = resolveZoteroPluginBin(),
+  scaffoldBin = resolveWorkflowScaffoldEntrypoint(),
 } = {}) {
   const webChatLive = argv.includes("--webchat-live");
   const agentLive = argv.includes("--agent-live");
 
   return {
     command: execPath,
-    args: [scaffoldBin, "test", "--no-watch", "--abort-on-fail"],
+    args: [scaffoldBin, "--workflow-child"],
     env: {
       ...env,
       NODE_ENV: "test",
