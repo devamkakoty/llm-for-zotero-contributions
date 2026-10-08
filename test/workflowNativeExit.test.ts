@@ -160,6 +160,50 @@ describe("workflow native exit guard", function () {
     }
   });
 
+  it("cancels only the observed native process", async function () {
+    const unrelated = spawn(
+      process.execPath,
+      ["-e", "setInterval(() => {}, 1000)"],
+      { stdio: "ignore" },
+    );
+    await once(unrelated, "spawn");
+    const abnormal: number[] = [];
+    const observer = observeWorkflowNativeProcess(
+      { onZoteroExit() {} },
+      {
+        onAbnormalExit: (code: number) => abnormal.push(code),
+        report: () => {},
+      },
+      () => process.execPath,
+    );
+    let owned: ReturnType<typeof spawn> | null = null;
+    try {
+      owned = spawn(
+        process.execPath,
+        ["-e", "setInterval(() => {}, 1000)"],
+        { stdio: ["ignore", "ignore", "pipe"] },
+      );
+      await once(owned, "spawn");
+      observer.assertAttached();
+      assert.isTrue(observer.requestOwnedStop());
+      await once(owned, "close");
+      assert.isNull(unrelated.exitCode);
+      assert.deepEqual(abnormal, [1]);
+    } finally {
+      observer.stop();
+      const ownedRunning =
+        owned?.exitCode === null && owned.signalCode === null;
+      const unrelatedRunning =
+        unrelated.exitCode === null && unrelated.signalCode === null;
+      if (ownedRunning) owned.kill("SIGKILL");
+      if (unrelatedRunning) unrelated.kill("SIGKILL");
+      await Promise.allSettled([
+        ...(unrelatedRunning ? [once(unrelated, "close")] : []),
+        ...(owned && ownedRunning ? [once(owned, "close")] : []),
+      ]);
+    }
+  });
+
   it("fails closed if no matching native process was observed", function () {
     const observer = observeWorkflowNativeProcess(
       { onZoteroExit() {} },

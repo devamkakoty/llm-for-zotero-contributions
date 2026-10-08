@@ -26,6 +26,7 @@ import {
   claimMapRestore,
   clearMapRestores,
   invalidateMapRestore,
+  type MapRestoreClaim,
 } from "../../shared/mapRestoreOwnership";
 import { invalidatePaperRestoreTargetCache } from "../../shared/paperConversationRestore";
 import {
@@ -127,7 +128,9 @@ type Slot<V> = {
   set: (value: V) => void;
   delete: () => void;
   invalidateRestore: () => void;
-  claimRestore: () => () => boolean;
+  prime: (value: V) => MapRestoreClaim;
+  restoreSet: (value: V) => void;
+  restoreDelete: () => void;
 };
 
 type SelectionAdapter = {
@@ -169,7 +172,13 @@ function slot<K, V>(map: Map<K, V>, key: K): Slot<V> {
       map.delete(key);
     },
     invalidateRestore,
-    claimRestore: () => claimMapRestore(map, key),
+    prime: (value) => {
+      const claim = claimMapRestore(map, key);
+      map.set(key, value);
+      return claim;
+    },
+    restoreSet: (value) => map.set(key, value),
+    restoreDelete: () => map.delete(key),
   };
 }
 
@@ -556,14 +565,14 @@ function primeEntry<V>(params: {
   const hadValue = entry.has();
   const previousValue = entry.get();
   const previousPersisted = persisted ? persisted.read() : null;
-  entry.set(value);
+  const ownership = entry.prime(value);
   persisted?.write(value);
-  const ownsRestore = entry.claimRestore();
   return {
-    isStillPrimed: () => ownsRestore() && entry.get() === value,
+    isStillPrimed: () => ownership.isCurrent() && entry.get() === value,
     restore: () => {
-      if (hadValue) entry.set(previousValue as V);
-      else entry.delete();
+      if (hadValue) entry.restoreSet(previousValue as V);
+      else entry.restoreDelete();
+      ownership.restorePrevious();
       if (!persisted) return;
       if (params.isRestorable(previousPersisted)) {
         persisted.write(previousPersisted);

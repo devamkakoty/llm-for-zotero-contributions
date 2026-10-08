@@ -575,6 +575,57 @@ describe("conversationSelection", function () {
       });
 
       for (const surface of ["embedded", "standalone"] as const) {
+        it(`restores nested failed ${surface} paper primes in reverse order`, async function () {
+          const olderKey = fixture.paperKey();
+          const newerKey = olderKey + 1;
+          await initializeRestore(fixture, [olderKey, newerKey]);
+          rememberMode(fixture.system, LIBRARY_ID, "global");
+          if (surface === "standalone") {
+            rememberMode(fixture.system, LIBRARY_ID, "global", { surface });
+          }
+          const params = {
+            system: fixture.system,
+            libraryID: LIBRARY_ID,
+            mode: "paper" as const,
+            paperItemID: PAPER_ID,
+            surface,
+          };
+          const older = prime({ ...params, conversationKey: olderKey });
+          const newer = prime({ ...params, conversationKey: newerKey });
+          await flushPaperRestoreSelectionWrites();
+
+          assert.equal(
+            recallActive({ ...paperScopeFor(), surface }),
+            newerKey,
+          );
+          newer.restore();
+          await flushPaperRestoreSelectionWrites();
+          assert.equal(
+            recallActive({ ...paperScopeFor(), surface }),
+            olderKey,
+          );
+          assert.equal(
+            recallMode(fixture.system, LIBRARY_ID, {
+              source: "active+persisted",
+              surface,
+            }),
+            "paper",
+          );
+
+          older.restore();
+          await flushPaperRestoreSelectionWrites();
+          assert.equal(recallActive({ ...paperScopeFor(), surface }), 0);
+          assert.equal(
+            recallMode(fixture.system, LIBRARY_ID, {
+              source: "active+persisted",
+              surface,
+            }),
+            "global",
+          );
+          assert.isNull(fixture.getPaper());
+          assert.equal(fixture.getMode(), "global");
+        });
+
         describe(`${surface} mode priming ownership`, function () {
           it(
             surface === "embedded"

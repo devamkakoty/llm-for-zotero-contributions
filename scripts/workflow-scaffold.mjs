@@ -69,6 +69,8 @@ export function observeWorkflowNativeProcess(
 ) {
   const events = channel("child_process");
   let attached = false;
+  let ownedNative = null;
+  let stopRequested = false;
   const normalized = (path) => {
     const absolute = resolve(path);
     return process.platform === "win32" ? absolute.toLowerCase() : absolute;
@@ -84,6 +86,8 @@ export function observeWorkflowNativeProcess(
         throw new Error("Unexpected second native workflow process");
       attachNativeExitGuard(runner, { ...options, native });
       attached = true;
+      ownedNative = native;
+      if (stopRequested) native.kill("SIGTERM");
     });
   };
   events.subscribe(observe);
@@ -93,6 +97,16 @@ export function observeWorkflowNativeProcess(
     },
     assertAttached() {
       if (!attached) throw new Error("Native workflow spawn was not observed");
+    },
+    requestOwnedStop() {
+      stopRequested = true;
+      if (
+        !ownedNative ||
+        ownedNative.exitCode !== null ||
+        ownedNative.signalCode !== null
+      )
+        return false;
+      return ownedNative.kill("SIGTERM");
     },
   };
 }
@@ -108,7 +122,6 @@ export async function runWorkflowScaffold({
   });
   if (configure) await configure(context);
   const runner = new Test(context);
-  process.on("SIGINT", runner.exit.bind(runner));
   const observer = observeWorkflowNativeProcess(runner, {
     diagnostics,
     onAbnormalExit(code) {
@@ -119,10 +132,17 @@ export async function runWorkflowScaffold({
       process.exit(code);
     },
   });
+  // Never call Scaffold's machine-wide cancellation fallback. Stop only the
+  // native process observed for this disposable workflow run.
+  const stopOwnedNative = () => observer.requestOwnedStop();
+  process.on("SIGINT", stopOwnedNative);
+  process.on("SIGTERM", stopOwnedNative);
   try {
     await runner.run();
     observer.assertAttached();
   } finally {
+    process.removeListener("SIGINT", stopOwnedNative);
+    process.removeListener("SIGTERM", stopOwnedNative);
     observer.stop();
   }
   const binary = process.env.ZOTERO_PLUGIN_ZOTERO_BIN_PATH;
