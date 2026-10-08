@@ -8,6 +8,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: anysearch-fork-preflight-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   complete-check:
     if: github.repository == 'devamkakoty/llm-for-zotero-contributions'
