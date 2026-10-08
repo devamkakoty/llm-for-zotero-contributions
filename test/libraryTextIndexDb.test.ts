@@ -213,6 +213,40 @@ describe("library text index db", function () {
       (globalThis as any).Zotero = previous;
     }
   });
+  for (const strict of [false, true]) {
+    it(`handles close failure with strict teardown ${strict}`, async function () {
+      const previous = (globalThis as any).Zotero;
+      const failure = new Error("fixture close failed");
+      class FakeConnection {
+        async queryAsync(sql: string) {
+          return sql.startsWith("SELECT") ? [] : undefined;
+        }
+        async executeTransaction<T>(fn: () => Promise<T>) {
+          return fn();
+        }
+        async closeDatabase() {
+          throw failure;
+        }
+      }
+      (globalThis as any).Zotero = {
+        DBConnection: FakeConnection,
+        DataDirectory: { dir: "/tmp" },
+      };
+      try {
+        assert.isOk(await openLibraryTextIndexDb());
+        let caught: unknown;
+        try {
+          await closeLibraryTextIndexDb({ throwOnError: strict });
+        } catch (error) {
+          caught = error;
+        }
+        assert.strictEqual(caught, strict ? failure : undefined);
+      } finally {
+        await closeLibraryTextIndexDb();
+        (globalThis as any).Zotero = previous;
+      }
+    });
+  }
   it("close waits for an open in flight and closes that handle without deleting the file", async function () {
     const previous = (globalThis as any).Zotero;
     let release!: () => void;

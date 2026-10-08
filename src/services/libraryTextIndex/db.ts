@@ -223,7 +223,9 @@ export function resetLibraryTextIndexQuitForTests(): void {
   quitting = false;
 }
 
-export async function closeLibraryTextIndexDb(): Promise<void> {
+export async function closeLibraryTextIndexDb(
+  options: { throwOnError?: boolean } = {},
+): Promise<void> {
   // An open racing shutdown must finish first, or its handle leaks.
   const pending = openPromise;
   if (!connection && pending) {
@@ -245,6 +247,9 @@ export async function closeLibraryTextIndexDb(): Promise<void> {
       await db.closeDatabase(true);
     } catch (error) {
       appLogger.debug("LLM index: close failed", error);
+      // Production shutdown remains best-effort; owned test fixtures must
+      // surface failed disposal rather than reporting a successful teardown.
+      if (options.throwOnError) throw error;
     }
   }
 }
