@@ -4,6 +4,7 @@ import { PassThrough } from "node:stream";
 import { spawn } from "node:child_process";
 import {
   attachNativeExitGuard,
+  installOwnedNativeSignalHandlers,
   observeWorkflowNativeProcess,
 } from "../scripts/workflow-scaffold.mjs";
 
@@ -168,6 +169,7 @@ describe("workflow native exit guard", function () {
     );
     await once(unrelated, "spawn");
     const abnormal: number[] = [];
+    const signals = new EventEmitter();
     const observer = observeWorkflowNativeProcess(
       { onZoteroExit() {} },
       {
@@ -176,6 +178,10 @@ describe("workflow native exit guard", function () {
       },
       () => process.execPath,
     );
+    const removeSignalHandlers = installOwnedNativeSignalHandlers(
+      observer,
+      signals,
+    );
     let owned: ReturnType<typeof spawn> | null = null;
     try {
       owned = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], {
@@ -183,11 +189,15 @@ describe("workflow native exit guard", function () {
       });
       await once(owned, "spawn");
       observer.assertAttached();
-      assert.isTrue(observer.requestOwnedStop());
-      await once(owned, "close");
+      const ownedClose = observer.waitForOwnedClose();
+      signals.emit("SIGTERM");
+      await ownedClose;
       assert.isNull(unrelated.exitCode);
       assert.deepEqual(abnormal, [1]);
+      assert.equal(signals.listenerCount("SIGINT"), 1);
+      assert.equal(signals.listenerCount("SIGTERM"), 1);
     } finally {
+      removeSignalHandlers();
       observer.stop();
       const ownedRunning =
         owned?.exitCode === null && owned.signalCode === null;
@@ -199,6 +209,8 @@ describe("workflow native exit guard", function () {
         ...(unrelatedRunning ? [once(unrelated, "close")] : []),
         ...(owned && ownedRunning ? [once(owned, "close")] : []),
       ]);
+      assert.equal(signals.listenerCount("SIGINT"), 0);
+      assert.equal(signals.listenerCount("SIGTERM"), 0);
     }
   });
 

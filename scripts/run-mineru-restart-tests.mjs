@@ -1,6 +1,5 @@
 import { cp, mkdir, rm, writeFile } from "node:fs/promises";
-import { spawn } from "node:child_process";
-import { createWorkflowTestCommand } from "./workflow-command.mjs";
+import { runMineruRestartPhase } from "./mineru-restart-phase.mjs";
 
 // The standard scaffold empties its disposable data directory on every run.
 // Preserve its stopped database and checkpoint files between two fresh Zotero
@@ -22,22 +21,12 @@ const recordPath=PathUtils.join(Zotero.DataDirectory.dir,"mineru-restart-records
 ${test}
 });});\n`,
   );
-  await new Promise((resolve, reject) => {
-    const command = createWorkflowTestCommand({
-      env: {
-        ...process.env,
-        LLM_FOR_ZOTERO_TEST_ENTRIES: entries,
-        LLM_FOR_ZOTERO_MINERU_RESTART_PHASE: name,
-      },
-    });
-    const child = spawn(command.command, command.args, {
-      stdio: "inherit",
-      env: command.env,
-    });
-    child.on("error", reject);
-    child.on("close", (code) =>
-      code === 0 ? resolve() : reject(new Error(`${name} exited ${code}`)),
-    );
+  await runMineruRestartPhase(name, {
+    env: {
+      ...process.env,
+      LLM_FOR_ZOTERO_TEST_ENTRIES: entries,
+      LLM_FOR_ZOTERO_MINERU_RESTART_PHASE: name,
+    },
   });
 }
 await phase(
