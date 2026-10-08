@@ -18,10 +18,7 @@ export function clearMapRestores(map: object): void {
   ownersByMap.delete(map);
 }
 
-export function claimMapRestore(
-  map: object,
-  key: unknown,
-): MapRestoreClaim {
+export function claimMapRestore(map: object, key: unknown): MapRestoreClaim {
   let owners = ownersByMap.get(map);
   if (!owners) {
     owners = new Map();
