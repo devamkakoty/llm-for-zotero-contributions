@@ -115,20 +115,24 @@ export async function runWorkflowScaffold({
   }
   const binary = process.env.ZOTERO_PLUGIN_ZOTERO_BIN_PATH;
   if (binary) {
-    try {
-      const ini = await readFile(
-        join(dirname(binary), "application.ini"),
-        "utf8",
-      );
-      const version = ini
-        .split(/\r?\n/)
-        .filter((line) => /^(Version|BuildID)=/.test(line));
-      console.log(
-        `Native workflow runtime: ${version.join(", ") || "unknown"}`,
-      );
-    } catch {
-      console.log("Native workflow runtime version unavailable");
+    for (const iniPath of [
+      join(dirname(binary), "app", "application.ini"),
+      join(dirname(binary), "application.ini"),
+    ]) {
+      try {
+        const ini = await readFile(iniPath, "utf8");
+        const version = ini
+          .split(/\r?\n/)
+          .filter((line) => /^(Version|BuildID)=/.test(line));
+        console.log(
+          `Native workflow runtime: ${version.join(", ") || "unknown"}`,
+        );
+        return;
+      } catch {
+        // Zotero distributions use either an app subdirectory or the root.
+      }
     }
+    console.log("Native workflow runtime version unavailable");
   }
 }
 

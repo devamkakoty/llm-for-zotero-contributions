@@ -14,7 +14,13 @@ export function createWorkflowCompletionTracker() {
     const match = plain.match(
       /^[✔✖]\s+Test run completed - (\d+) passed(?:, (\d+) failed)?$/,
     );
-    if (summaries.length && /^[✔✖→]\s/.test(plain)) {
+    const benignMetadata =
+      plain === 'Native workflow exit: {"code":0,"signal":null}' ||
+      plain === "Native workflow runtime version unavailable" ||
+      /^Native workflow runtime: (?:unknown|(?:Version|BuildID)=[^,\r\n]+(?:, (?:Version|BuildID)=[^,\r\n]+)*)$/.test(
+        plain,
+      );
+    if (summaries.length && plain && !benignMetadata) {
       outputAfterSummary = true;
     }
     if (match && summaries.length < 2) {
@@ -36,6 +42,8 @@ export function createWorkflowCompletionTracker() {
             state.oversized = true;
           }
         }
+        // Discard oversized content, but do not discard evidence after completion.
+        if (state.oversized && summaries.length) outputAfterSummary = true;
         if (terminated) {
           if (!state.oversized) inspect(state.text);
           state.text = "";
