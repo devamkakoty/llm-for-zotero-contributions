@@ -586,9 +586,31 @@ describe("workflow: sidebar chat mode toggle", function () {
     }
 
     /** At rest: the chosen mode fills the chip; the other is out of sight. */
-    function assertChipAtRest(section: HTMLElement, tab: Tab): void {
+    async function assertChipAtRest(
+      section: HTMLElement,
+      tab: Tab,
+    ): Promise<void> {
       const capsule = chipOf(section);
       const other: Tab = tab === "paper" ? "library" : "paper";
+      // Conversation selection can update before the chip's async state sync
+      // and CSS transition finish. Wait for the observable rest state rather
+      // than treating a fixed sleep as proof that those operations completed.
+      await until(() => {
+        const chip = capsule.getBoundingClientRect();
+        const selected = optionOf(section, tab);
+        const bounds = selected.getBoundingClientRect();
+        const track = capsule.querySelector(".llm-mode-switch-track")!;
+        return (
+          capsule.dataset.mode === tab &&
+          selected.getAttribute("aria-pressed") === "true" &&
+          capsule.dataset.expanded === "false" &&
+          chip.width > 0 &&
+          Math.abs(bounds.top - chip.top) <= 0.5 &&
+          Math.abs(bounds.width - chip.width) <= 0.5 &&
+          win.getComputedStyle(optionOf(section, other)).opacity === "0" &&
+          win.getComputedStyle(track).opacity === "0"
+        );
+      }, `${tab} chip reaches its closed, selected position`);
       assert.equal(capsule.dataset.expanded, "false");
       const chipRect = capsule.getBoundingClientRect();
       const shown = optionOf(section, tab).getBoundingClientRect();
@@ -647,7 +669,7 @@ describe("workflow: sidebar chat mode toggle", function () {
       const section = await openChat("stacked", fixture.parentItemId);
       await restPointer(section);
       assertStackedRow(section);
-      assertChipAtRest(section, "paper");
+      await assertChipAtRest(section, "paper");
       assert.equal(optionLabel(optionOf(section, "paper")), "Paper chat");
       assert.equal(optionLabel(optionOf(section, "library")), "Library chat");
     });
@@ -682,7 +704,7 @@ describe("workflow: sidebar chat mode toggle", function () {
       section.scrollIntoView?.();
       await restPointer(section);
       assertStackedRow(section);
-      assertChipAtRest(section, "library");
+      await assertChipAtRest(section, "library");
       assert.equal(root.dataset.itemId, libraryKey);
 
       // A click with no hover (as on touch) toggles the chip.
@@ -692,7 +714,7 @@ describe("workflow: sidebar chat mode toggle", function () {
         "the chip toggles to Paper chat",
       );
       await settleMotion();
-      assertChipAtRest(section, "paper");
+      await assertChipAtRest(section, "paper");
       assertActiveTab(root, "paper");
 
       // Back to Independent: the tabs already show Paper chat.
@@ -718,7 +740,7 @@ describe("workflow: sidebar chat mode toggle", function () {
       const root = section.querySelector("#llm-main") as HTMLElement;
       const capsule = chipOf(section);
       await restPointer(section);
-      assertChipAtRest(section, "paper");
+      await assertChipAtRest(section, "paper");
       const paperKey = root.dataset.itemId;
       const restWidth = capsule.getBoundingClientRect().width;
 
@@ -779,7 +801,7 @@ describe("workflow: sidebar chat mode toggle", function () {
       );
       assert.isAtLeast(Date.now() - leftAt, 155, "not before the grace ends");
       await settleMotion();
-      assertChipAtRest(section, "library");
+      await assertChipAtRest(section, "library");
       assert.closeTo(
         capsule.getBoundingClientRect().width,
         restWidth,
@@ -824,7 +846,7 @@ describe("workflow: sidebar chat mode toggle", function () {
         "the switch closes",
       );
       await settleMotion();
-      assertChipAtRest(section, "library");
+      await assertChipAtRest(section, "library");
     });
 
     it("drives the stacked chip from the keyboard", async function () {
@@ -923,7 +945,7 @@ describe("workflow: sidebar chat mode toggle", function () {
         key(paper, "Escape");
         assert.equal(capsule.dataset.expanded, "false");
         await settleMotion();
-        assertChipAtRest(section, "paper");
+        await assertChipAtRest(section, "paper");
 
         // Moving focus away closes it too.
         input.focus();
@@ -982,7 +1004,7 @@ describe("workflow: sidebar chat mode toggle", function () {
         await useTheme(theme);
         const section = await openChat("stacked", fixture.parentItemId);
         await restPointer(section);
-        assertChipAtRest(section, "paper");
+        await assertChipAtRest(section, "paper");
         await capture(`header-stacked-rest-${theme}.png`);
         hover(optionOf(section, "paper"));
         await until(
