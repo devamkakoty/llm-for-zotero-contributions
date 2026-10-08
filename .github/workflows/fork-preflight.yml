@@ -33,3 +33,26 @@ jobs:
         run: npm run build
       - name: Complete npm test gate
         run: npm test
+  native-diagnostic:
+    if: github.repository == 'devamkakoty/llm-for-zotero-contributions'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout exact diagnostic commit
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Set up Node 24 without a persistent cache
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - name: Install locked dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Collect all native workflow failures without early bail
+        run: node scripts/fork-workflow-diagnostic.mjs
+      - name: Record native runtime version
+        if: always()
+        run: |
+          if test -f Zotero_linux-x86_64/application.ini; then
+            grep -E '^(Version|BuildID)=' Zotero_linux-x86_64/application.ini
+          fi
