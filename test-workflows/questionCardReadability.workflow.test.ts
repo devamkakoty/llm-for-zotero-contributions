@@ -67,8 +67,13 @@ describe("workflow: question card readability", function () {
       pages: ["Disposable question layout fixture."],
     });
     try {
+      const win = Zotero.getMainWindow();
+      // Windows automation can start this disposable test host minimized.
+      // A hidden document throttles rendering/ResizeObserver notifications,
+      // so restore the native host before testing responsive geometry.
+      if (win.windowState === win.STATE_MINIMIZED) win.restore();
       const panel = await api.renderPanelForItem(fixture.parentItemId);
-      const doc = Zotero.getMainWindow().document;
+      const doc = win.document;
       const action = buildNativeQuestionAction([
         {
           id: "destination",
