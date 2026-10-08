@@ -25,15 +25,26 @@ async function waitForQuestionLayout(card: HTMLElement): Promise<void> {
     const rects = elements.map((element) =>
       element?.getBoundingClientRect().toJSON(),
     );
+    const activeHeight = active
+      ? active.offsetHeight || active.scrollHeight
+      : 0;
+    const appliedHeight = Number.parseFloat(viewport?.style.height || "");
     diagnostic = JSON.stringify({
       connected: card.isConnected,
       ready: card.dataset.questionStackReady,
+      activeHeight,
+      appliedHeight,
+      visibility: card.ownerDocument.visibilityState,
+      resizeObserver: typeof card.ownerDocument.defaultView?.ResizeObserver,
+      windowState: (card.ownerDocument.defaultView as any)?.windowState,
       rects,
     });
     const rendered =
       card.isConnected &&
       card.dataset.questionStackReady === "true" &&
       elements.length > 3 &&
+      activeHeight > 0 &&
+      Math.abs(appliedHeight - activeHeight) <= 1 &&
       rects.every((rect) => rect && rect.width > 0 && rect.height > 0);
     // The renderer mounts panels in requestAnimationFrame and adjusts the
     // viewport through ResizeObserver. Elapsed time alone is not readiness.
@@ -92,7 +103,19 @@ describe("workflow: question card readability", function () {
       const root = doc.querySelector<HTMLElement>(
         `[data-workflow-panel-id="${panel.panelId}"] .llm-panel`,
       )!;
-      root.querySelector(".llm-messages")!.appendChild(card);
+      // This is a manually rendered fixture, not a stored chat message.
+      // Background conversation refreshes legitimately replace #llm-chat-box;
+      // placing the fixture there can detach it while geometry is measured.
+      // Keep the real message styling/font inheritance in an independent host.
+      const contentHost = doc.createElement("div");
+      contentHost.className = "llm-messages";
+      contentHost.style.height = "auto";
+      contentHost.style.minHeight = "0";
+      contentHost.style.maxHeight = "none";
+      contentHost.style.flex = "0 0 auto";
+      root.appendChild(contentHost);
+      contentHost.appendChild(card);
+      api.refreshActiveConversationPanels();
       const oldScale = root.style.getPropertyValue("--llm-font-scale");
       try {
         for (const [width, scale] of [
@@ -186,6 +209,7 @@ describe("workflow: question card readability", function () {
           destination: { kind: "custom", text: "Learning / Other" },
         });
       } finally {
+        contentHost.remove();
         if (oldScale) root.style.setProperty("--llm-font-scale", oldScale);
         else root.style.removeProperty("--llm-font-scale");
       }
